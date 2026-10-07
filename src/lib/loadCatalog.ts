@@ -60,9 +60,9 @@ async function loadGzipB64(): Promise<CatalogSheet[]> {
     b64 = (await whole.text()).replace(/\s+/g, '');
   } else {
     const parts: string[] = [];
-    for (let i = 0; i < 3; i++) {
-      const r = await fetch(`${dataRoot()}wahapedia-sheets.json.gz.b64.part${i}`);
-      if (!r.ok) throw new Error(`Catalog gz.b64 part${i} HTTP ${r.status}`);
+    for (let i = 0; i < 9; i++) {
+      const r = await fetch(`${dataRoot()}wahapedia-sheets.json.gz.b64.p${i}`);
+      if (!r.ok) throw new Error(`Catalog gz.b64 p${i} HTTP ${r.status}`);
       parts.push((await r.text()).replace(/\s+/g, ''));
     }
     b64 = parts.join('');
