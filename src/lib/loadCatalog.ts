@@ -14,7 +14,6 @@ export function getCatalogLoadError() {
   return lastError;
 }
 
-/** Reset cache (tests). */
 export function resetCatalogCache() {
   cached = null;
   loadPromise = null;
@@ -50,11 +49,39 @@ type FactionIndex = {
   factions: { f: string; file: string; n: number }[];
 };
 
+type PartsIndex = {
+  source: string;
+  generated: string;
+  sheetCount: number;
+  parts: { i: number; file: string; n: number }[];
+};
+
 async function loadMonolithic(): Promise<CatalogSheet[]> {
   const res = await fetch(`${dataRoot()}wahapedia-sheets.json`);
   if (!res.ok) throw new Error(`Catalog HTTP ${res.status}`);
-  const data = (await res.json()) as CatalogFile;
-  return applyCatalog(data);
+  return applyCatalog((await res.json()) as CatalogFile);
+}
+
+async function loadParts(): Promise<CatalogSheet[]> {
+  const res = await fetch(`${dataRoot()}wahapedia-parts.json`);
+  if (!res.ok) throw new Error(`Parts index HTTP ${res.status}`);
+  const index = (await res.json()) as PartsIndex;
+  if (!index?.parts?.length) throw new Error('Parts index empty');
+  const chunks = await Promise.all(
+    index.parts.map(async (entry) => {
+      const r = await fetch(`${dataRoot()}parts/${entry.file}`);
+      if (!r.ok) throw new Error(`Part ${entry.file} HTTP ${r.status}`);
+      const body = (await r.json()) as { sheets: CatalogSheet[] };
+      return body.sheets || [];
+    }),
+  );
+  const sheets = chunks.flat();
+  return applyCatalog({
+    source: index.source,
+    generated: index.generated,
+    sheetCount: index.sheetCount || sheets.length,
+    sheets,
+  });
 }
 
 async function loadFactionShards(): Promise<CatalogSheet[]> {
@@ -80,38 +107,36 @@ async function loadFactionShards(): Promise<CatalogSheet[]> {
 }
 
 /**
- * Lazy-load the bundled Wahapedia-derived sheet catalog once.
- * Tries monolithic public/data/wahapedia-sheets.json, then faction shards
- * (wahapedia-index.json + public/data/factions/*.json). No live scrape.
+ * Lazy-load bundled Wahapedia community catalog (no live scrape).
+ * Order: monolith → numbered parts → faction shards.
  */
 export function loadCatalog(): Promise<CatalogSheet[]> {
   if (cached) return Promise.resolve(cached);
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    try {
-      cached = await loadMonolithic();
-      lastError = null;
-      return cached;
-    } catch (monoErr) {
+    const errors: string[] = [];
+    for (const [label, fn] of [
+      ['monolith', loadMonolithic],
+      ['parts', loadParts],
+      ['shards', loadFactionShards],
+    ] as const) {
       try {
-        cached = await loadFactionShards();
+        cached = await fn();
         lastError = null;
         return cached;
-      } catch (shardErr) {
-        const a = monoErr instanceof Error ? monoErr.message : String(monoErr);
-        const b = shardErr instanceof Error ? shardErr.message : String(shardErr);
-        lastError = `monolith: ${a}; shards: ${b}`;
-        cached = [];
-        return cached;
+      } catch (err) {
+        errors.push(`${label}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    lastError = errors.join('; ');
+    cached = [];
+    return cached;
   })();
 
   return loadPromise;
 }
 
-/** Inject sheets for tests without fetch. */
 export function setCatalogForTests(sheets: CatalogSheet[]) {
   cached = sheets;
   loadPromise = Promise.resolve(sheets);
