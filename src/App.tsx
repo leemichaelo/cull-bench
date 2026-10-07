@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AttackerEditor } from './components/AttackerEditor';
 import { BandEditor } from './components/BandEditor';
 import { Heatmap } from './components/Heatmap';
+import { ListPaste } from './components/ListPaste';
 import { ModifierPanel } from './components/ModifierPanel';
 import { computeMatrix } from './engine/expectedDamage';
 import type { Attacker, Modifiers, TargetBand } from './engine/types';
@@ -53,6 +54,8 @@ export default function App() {
         onModifiers={setModifiers}
         onThreshold={setThreshold}
       />
+
+      <ListPaste attackers={attackers} onChange={setAttackers} />
 
       <Heatmap
         attackers={attackers}
