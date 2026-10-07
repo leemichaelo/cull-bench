@@ -18,7 +18,7 @@ function newId(prefix: string, name: string, index: number): string {
   return `${prefix}-${slug(name)}-${index}`;
 }
 
-/** Placeholder stats — safe for heatmap; user must type real values from datasheets. */
+/** Placeholder stats — used when catalog miss or before enrichment. */
 function placeholderWeapon(name: string, index: number): WeaponProfile {
   return {
     id: newId('wpn', name, index),
@@ -47,6 +47,7 @@ export function unitToAttacker(unit: ParsedUnit, index: number): Attacker {
   };
 }
 
+/** Sync fallback without catalog (tests / offline). Prefer listToEnrichedAttackers. */
 export function listToAttackers(list: ParsedList): Attacker[] {
   return list.units.map((u, i) => unitToAttacker(u, i));
 }
