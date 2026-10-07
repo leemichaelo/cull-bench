@@ -11,14 +11,25 @@ jobs:
       - name: Decode gzip-b64 shards
         run: |
           python3 << 'PY'
-          import base64, gzip, hashlib, pathlib
+          import base64, gzip, hashlib, pathlib, json
           src = pathlib.Path('tmp/gz-b64')
           out = pathlib.Path('public/data/factions')
           out.mkdir(parents=True, exist_ok=True)
           n = 0
           for p in sorted(src.glob('*.json.gz.b64')):
               name = p.name[:-len('.gz.b64')]
-              raw = gzip.decompress(base64.b64decode(p.read_text().strip()))
+              text = p.read_text().strip()
+              fix_path = pathlib.Path(str(p) + '.fix.json')
+              if fix_path.exists():
+                  chars = list(text)
+                  for item in json.loads(fix_path.read_text()):
+                      i = item['i']
+                      if chars[i] != item['remote']:
+                          raise SystemExit(f'{p}: expected {item["remote"]!r} at {i}, got {chars[i]!r}')
+                      chars[i] = item['local']
+                  text = ''.join(chars)
+                  print('patched', p.name, fix_path.name)
+              raw = gzip.decompress(base64.b64decode(text))
               target = out / name
               target.write_bytes(raw)
               print('wrote', target, len(raw), hashlib.sha256(raw).hexdigest()[:12])
