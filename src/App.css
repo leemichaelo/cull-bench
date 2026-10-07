@@ -278,3 +278,15 @@ table.edit-table input {
   color: #e88a8a;
   font-size: 0.9rem;
 }
+
+.list-paste-match {
+  margin-top: 0.25rem;
+  font-size: 0.88rem;
+}
+
+.list-paste-unmatched {
+  margin: 0.35rem 0 0;
+  color: #e8c36a;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
