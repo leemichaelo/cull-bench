@@ -1,5 +1,4 @@
 import type { CatalogFile, CatalogSheet } from './catalogTypes';
-import { WAHAPEDIA_SHEETS_GZ_B64 } from '../data/wahapediaCatalogGz';
 
 let cached: CatalogSheet[] | null = null;
 let loadPromise: Promise<CatalogSheet[]> | null = null;
@@ -44,39 +43,9 @@ function applyCatalog(data: CatalogFile): CatalogSheet[] {
   return data.sheets;
 }
 
-async function gunzipBase64(b64: string): Promise<Uint8Array> {
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-
-  if (typeof DecompressionStream === 'undefined') {
-    throw new Error('DecompressionStream unavailable');
-  }
-  const stream = new Blob([bytes])
-    .stream()
-    .pipeThrough(new DecompressionStream('gzip'));
-  const buf = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buf);
-}
-
-async function loadEmbedded(): Promise<CatalogSheet[]> {
-  const raw = await gunzipBase64(WAHAPEDIA_SHEETS_GZ_B64);
-  const text = new TextDecoder().decode(raw);
-  const data = JSON.parse(text) as CatalogFile;
-  return applyCatalog(data);
-}
-
-async function loadFetched(): Promise<CatalogSheet[]> {
-  const res = await fetch(catalogUrl());
-  if (!res.ok) throw new Error(`Catalog HTTP ${res.status}`);
-  const data = (await res.json()) as CatalogFile;
-  return applyCatalog(data);
-}
-
 /**
- * Lazy-load the bundled Wahapedia-derived sheet catalog once.
- * Prefers the embedded gzipped community reference (no CORS / no live scrape);
- * falls back to fetching /data/wahapedia-sheets.json when present.
+ * Lazy-load the bundled Wahapedia-derived sheet catalog once from
+ * public/data/wahapedia-sheets.json (static Pages hosting — no live scrape).
  */
 export function loadCatalog(): Promise<CatalogSheet[]> {
   if (cached) return Promise.resolve(cached);
@@ -84,21 +53,16 @@ export function loadCatalog(): Promise<CatalogSheet[]> {
 
   loadPromise = (async () => {
     try {
-      cached = await loadEmbedded();
+      const res = await fetch(catalogUrl());
+      if (!res.ok) throw new Error(`Catalog HTTP ${res.status}`);
+      const data = (await res.json()) as CatalogFile;
+      cached = applyCatalog(data);
       lastError = null;
       return cached;
-    } catch (embedErr) {
-      try {
-        cached = await loadFetched();
-        lastError = null;
-        return cached;
-      } catch (fetchErr) {
-        const a = embedErr instanceof Error ? embedErr.message : String(embedErr);
-        const b = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        lastError = `embedded: ${a}; fetch: ${b}`;
-        cached = [];
-        return cached;
-      }
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      cached = [];
+      return cached;
     }
   })();
 
