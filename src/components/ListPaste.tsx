@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Attacker } from '../engine/types';
 import { parseArmyList } from '../lib/listParse';
-import { listToAttackers } from '../lib/listToAttackers';
+import { listToEnrichedAttackers } from '../lib/enrichAttackers';
 
 interface Props {
   attackers: Attacker[];
@@ -15,14 +15,20 @@ interface Summary {
   points: number;
   unitCount: number;
   mode: 'replace' | 'append';
+  matched: number;
+  unmatched: number;
+  unmatchedNames: string[];
+  catalogLoaded: boolean;
+  catalogError?: string;
 }
 
 export function ListPaste({ attackers, onChange }: Props) {
   const [text, setText] = useState('');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const apply = (mode: 'replace' | 'append') => {
+  const apply = async (mode: 'replace' | 'append') => {
     setError(null);
     setSummary(null);
     const trimmed = text.trim();
@@ -37,16 +43,28 @@ export function ListPaste({ attackers, onChange }: Props) {
       );
       return;
     }
-    const next = listToAttackers(list);
-    onChange(mode === 'replace' ? next : [...attackers, ...next]);
-    setSummary({
-      name: list.name,
-      faction: list.faction,
-      detachment: list.detachment,
-      points: list.points,
-      unitCount: list.units.length,
-      mode,
-    });
+    setBusy(true);
+    try {
+      const { attackers: next, meta } = await listToEnrichedAttackers(list);
+      onChange(mode === 'replace' ? next : [...attackers, ...next]);
+      setSummary({
+        name: list.name,
+        faction: list.faction,
+        detachment: list.detachment,
+        points: list.points,
+        unitCount: list.units.length,
+        mode,
+        matched: meta.matched,
+        unmatched: meta.unmatched,
+        unmatchedNames: meta.unmatchedNames,
+        catalogLoaded: meta.catalogLoaded,
+        catalogError: meta.catalogError,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -56,10 +74,11 @@ export function ListPaste({ attackers, onChange }: Props) {
       </div>
       <p className="hint">
         Paste a Warhammer 40k army list export (New Recruit, app, WTC/BCP-style
-        plain text). Creates attacker rows from unit names + points. Weapon
-        profiles are <strong>placeholder shells only</strong> — type real A /
-        skill / S / AP / D from your own books or app. No official datasheets
-        are shipped or scraped.
+        plain text). Unit names + points become attackers; weapon profiles are
+        filled from a <strong>bundled Wahapedia community reference</strong>{' '}
+        when a sheet matches (not Games Workshop official data — may be stale or
+        wrong). Unmatched units keep editable placeholder shells. Always
+        double-check against your books / app.
       </p>
       <textarea
         className="list-paste-area"
@@ -71,12 +90,18 @@ export function ListPaste({ attackers, onChange }: Props) {
         placeholder={`Example:\nMy Synthetic Host\nSynthetic Legion\n\nSynthetic Captain (100 points)\n• 1x Synthetic blade\n\n10x Synthetic Infantry (150 points)\n• 10x Synthetic bolt rifle`}
         spellCheck={false}
         aria-label="Army list paste"
+        disabled={busy}
       />
       <div className="list-paste-actions">
-        <button type="button" onClick={() => apply('replace')}>
-          Load list
+        <button type="button" onClick={() => void apply('replace')} disabled={busy}>
+          {busy ? 'Matching…' : 'Load list'}
         </button>
-        <button type="button" className="secondary" onClick={() => apply('append')}>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => void apply('append')}
+          disabled={busy}
+        >
           Append to attackers
         </button>
         <button
@@ -87,6 +112,7 @@ export function ListPaste({ attackers, onChange }: Props) {
             setSummary(null);
             setError(null);
           }}
+          disabled={busy}
         >
           Clear paste
         </button>
@@ -104,8 +130,30 @@ export function ListPaste({ attackers, onChange }: Props) {
             {summary.unitCount === 1 ? '' : 's'} ·{' '}
             {summary.mode === 'replace' ? 'replaced' : 'appended to'} attackers
           </div>
+          <div className="list-paste-match">
+            Catalog match: <strong>{summary.matched}</strong> filled
+            {summary.unmatched > 0 ? (
+              <>
+                {' '}
+                · <strong>{summary.unmatched}</strong> unmatched (placeholders)
+              </>
+            ) : null}
+            {!summary.catalogLoaded ? ' · catalog unavailable' : null}
+          </div>
+          {summary.unmatchedNames.length > 0 && (
+            <p className="list-paste-unmatched">
+              Unmatched: {summary.unmatchedNames.slice(0, 12).join(', ')}
+              {summary.unmatchedNames.length > 12
+                ? ` (+${summary.unmatchedNames.length - 12} more)`
+                : ''}
+            </p>
+          )}
+          {summary.catalogError && (
+            <p className="list-paste-error">Catalog: {summary.catalogError}</p>
+          )}
           <p className="list-paste-warn">
-            Weapon stats are placeholders — edit below from your datasheets.
+            Profiles from Wahapedia community reference — verify A / skill / S /
+            AP / D before trusting the heatmap.
           </p>
         </div>
       )}
