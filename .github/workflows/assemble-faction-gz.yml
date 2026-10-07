@@ -1,0 +1,37 @@
+name: Assemble faction shards from gzip parts
+on:
+  workflow_dispatch:
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode gzip-b64 shards
+        run: |
+          python3 << 'PY'
+          import base64, gzip, hashlib, pathlib
+          src = pathlib.Path('tmp/gz-b64')
+          out = pathlib.Path('public/data/factions')
+          out.mkdir(parents=True, exist_ok=True)
+          n = 0
+          for p in sorted(src.glob('*.json.gz.b64')):
+              name = p.name[:-len('.gz.b64')]
+              raw = gzip.decompress(base64.b64decode(p.read_text().strip()))
+              target = out / name
+              target.write_bytes(raw)
+              print('wrote', target, len(raw), hashlib.sha256(raw).hexdigest()[:12])
+              n += 1
+          print('total', n)
+          PY
+      - name: Commit shards and cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf tmp/gz-b64 tmp/factions-missing.zip.b64.* tmp/factions-missing.zip.sha256 || true
+          git add public/data/factions
+          git add -u tmp || true
+          git status
+          git commit -m "Assemble Wahapedia faction shards from gzip-b64 parts" || echo "no changes"
+          git push
