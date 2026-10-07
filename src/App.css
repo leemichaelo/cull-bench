@@ -229,3 +229,52 @@ table.edit-table input {
   font-size: 0.85rem;
   line-height: 1.4;
 }
+
+/* List paste */
+.list-paste-area {
+  width: 100%;
+  min-height: 10rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  background: var(--input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.list-paste-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.list-paste-summary {
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 80%, #2a5a3a 20%);
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.list-paste-summary strong {
+  color: var(--text);
+}
+
+.list-paste-warn {
+  margin: 0.4rem 0 0;
+  color: #e8c36a;
+  font-size: 0.85rem;
+}
+
+.list-paste-error {
+  margin-top: 0.75rem;
+  color: #e88a8a;
+  font-size: 0.9rem;
+}
