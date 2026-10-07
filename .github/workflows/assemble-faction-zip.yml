@@ -1,0 +1,38 @@
+name: Assemble faction zip
+on:
+  workflow_dispatch:
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decode zip and extract shards
+        run: |
+          python3 << 'PY'
+          import base64, hashlib, pathlib, zipfile, io
+          parts = sorted(pathlib.Path('tmp').glob('factions-missing.zip.b64.*'))
+          b64 = ''.join(p.read_text().strip() for p in parts)
+          data = base64.b64decode(b64)
+          expected = "a21c9fbeb64ff024239d76dd94282253ef0285884b8e470c0f6845c0fba3d98f"
+          got = hashlib.sha256(data).hexdigest()
+          if got != expected:
+              raise SystemExit(f'zip hash mismatch {got} != {expected}')
+          out = pathlib.Path('public/data/factions')
+          out.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(data)) as zf:
+              for name in zf.namelist():
+                  target = out / pathlib.Path(name).name
+                  target.write_bytes(zf.read(name))
+                  print('wrote', target, target.stat().st_size)
+          PY
+      - name: Commit shards and cleanup tmp
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm -rf tmp/factions-missing.zip.b64.*
+          git add public/data/factions
+          git add -u tmp || true
+          git commit -m "Assemble Wahapedia faction shards from zip parts" || echo "no changes"
+          git push
