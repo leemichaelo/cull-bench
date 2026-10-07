@@ -68,8 +68,10 @@ export default function App() {
       <BandEditor bands={bands} onChange={setBands} />
 
       <footer className="footer">
-        Local-only personal tool. No official Games Workshop data. Type stats
-        from your own books / app. Persists in this browser via localStorage.
+        Local-only personal tool. Bundled weapon profiles come from a Wahapedia
+        community reference cache (not Games Workshop official data; may be
+        stale or wrong) — always verify against your books / app. Persists in
+        this browser via localStorage.
       </footer>
     </div>
   );
