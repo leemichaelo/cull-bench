@@ -46,11 +46,53 @@ async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('DecompressionStream unavailable');
   }
-  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const ab = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
   const stream = new Blob([ab])
     .stream()
     .pipeThrough(new DecompressionStream('gzip'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.replace(/[^0-9a-f]/gi, '').toLowerCase();
+  if (clean.length % 2 !== 0) throw new Error('Odd hex length');
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+type HexManifest = {
+  encoding: string;
+  pieces: number;
+  files: { i: number; file: string; chars: number; md5?: string }[];
+};
+
+async function loadGzipHex(): Promise<CatalogSheet[]> {
+  const res = await fetch(`${dataRoot()}wahapedia-hex.json`);
+  if (!res.ok) throw new Error(`Hex manifest HTTP ${res.status}`);
+  const manifest = (await res.json()) as HexManifest;
+  if (!manifest?.files?.length) throw new Error('Hex manifest empty');
+  const parts: string[] = [];
+  for (const entry of manifest.files) {
+    const r = await fetch(`${dataRoot()}hex/${entry.file}`);
+    if (!r.ok) throw new Error(`Hex piece ${entry.file} HTTP ${r.status}`);
+    const text = (await r.text()).replace(/[^0-9a-f]/gi, '').toLowerCase();
+    if (entry.chars && text.length !== entry.chars) {
+      throw new Error(
+        `Hex piece ${entry.file} length ${text.length} != ${entry.chars}`,
+      );
+    }
+    parts.push(text);
+  }
+  const bytes = hexToBytes(parts.join(''));
+  const raw = await gunzipBytes(bytes);
+  const data = JSON.parse(new TextDecoder().decode(raw)) as CatalogFile;
+  return applyCatalog(data);
 }
 
 async function loadGzipB64(): Promise<CatalogSheet[]> {
@@ -124,22 +166,24 @@ async function loadFactionShards(): Promise<CatalogSheet[]> {
   const parts = await Promise.all(
     index.factions.map(async (entry) => {
       const r = await fetch(`${dataRoot()}factions/${entry.file}`);
-      if (!r.ok) throw new Error(`Faction ${entry.file} HTTP ${r.status}`);
+      if (!r.ok) return [] as CatalogSheet[];
       const body = (await r.json()) as { sheets: CatalogSheet[] };
       return body.sheets || [];
     }),
   );
+  const sheets = parts.flat();
+  if (!sheets.length) throw new Error('No faction shards loaded');
   return applyCatalog({
     source: index.source,
     generated: index.generated,
-    sheetCount: index.sheetCount || parts.flat().length,
-    sheets: parts.flat(),
+    sheetCount: sheets.length,
+    sheets,
   });
 }
 
 /**
  * Lazy-load bundled Wahapedia community catalog (no live scrape).
- * Order: gzip+base64 → plain JSON → numbered parts → faction shards.
+ * Order: faction shards (tolerant) → numbered parts → monolith → gzip+hex → gz.b64.
  */
 export function loadCatalog(): Promise<CatalogSheet[]> {
   if (cached) return Promise.resolve(cached);
@@ -148,10 +192,11 @@ export function loadCatalog(): Promise<CatalogSheet[]> {
   loadPromise = (async () => {
     const errors: string[] = [];
     for (const [label, fn] of [
-      ['gz.b64', loadGzipB64],
-      ['monolith', loadMonolithic],
-      ['parts', loadParts],
       ['shards', loadFactionShards],
+      ['parts', loadParts],
+      ['monolith', loadMonolithic],
+      ['gz.hex', loadGzipHex],
+      ['gz.b64', loadGzipB64],
     ] as const) {
       try {
         cached = await fn();
