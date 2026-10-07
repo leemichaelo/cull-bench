@@ -42,12 +42,44 @@ function applyCatalog(data: CatalogFile): CatalogSheet[] {
   return data.sheets;
 }
 
-type FactionIndex = {
-  source: string;
-  generated: string;
-  sheetCount: number;
-  factions: { f: string; file: string; n: number }[];
-};
+async function gunzipBytes(bytes: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('DecompressionStream unavailable');
+  }
+  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const stream = new Blob([ab])
+    .stream()
+    .pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function loadGzipB64(): Promise<CatalogSheet[]> {
+  let b64 = '';
+  const whole = await fetch(`${dataRoot()}wahapedia-sheets.json.gz.b64`);
+  if (whole.ok) {
+    b64 = (await whole.text()).replace(/\s+/g, '');
+  } else {
+    const parts: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await fetch(`${dataRoot()}wahapedia-sheets.json.gz.b64.part${i}`);
+      if (!r.ok) throw new Error(`Catalog gz.b64 part${i} HTTP ${r.status}`);
+      parts.push((await r.text()).replace(/\s+/g, ''));
+    }
+    b64 = parts.join('');
+  }
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const raw = await gunzipBytes(bytes);
+  const data = JSON.parse(new TextDecoder().decode(raw)) as CatalogFile;
+  return applyCatalog(data);
+}
+
+async function loadMonolithic(): Promise<CatalogSheet[]> {
+  const res = await fetch(`${dataRoot()}wahapedia-sheets.json`);
+  if (!res.ok) throw new Error(`Catalog HTTP ${res.status}`);
+  return applyCatalog((await res.json()) as CatalogFile);
+}
 
 type PartsIndex = {
   source: string;
@@ -55,12 +87,6 @@ type PartsIndex = {
   sheetCount: number;
   parts: { i: number; file: string; n: number }[];
 };
-
-async function loadMonolithic(): Promise<CatalogSheet[]> {
-  const res = await fetch(`${dataRoot()}wahapedia-sheets.json`);
-  if (!res.ok) throw new Error(`Catalog HTTP ${res.status}`);
-  return applyCatalog((await res.json()) as CatalogFile);
-}
 
 async function loadParts(): Promise<CatalogSheet[]> {
   const res = await fetch(`${dataRoot()}wahapedia-parts.json`);
@@ -75,14 +101,20 @@ async function loadParts(): Promise<CatalogSheet[]> {
       return body.sheets || [];
     }),
   );
-  const sheets = chunks.flat();
   return applyCatalog({
     source: index.source,
     generated: index.generated,
-    sheetCount: index.sheetCount || sheets.length,
-    sheets,
+    sheetCount: index.sheetCount || chunks.flat().length,
+    sheets: chunks.flat(),
   });
 }
+
+type FactionIndex = {
+  source: string;
+  generated: string;
+  sheetCount: number;
+  factions: { f: string; file: string; n: number }[];
+};
 
 async function loadFactionShards(): Promise<CatalogSheet[]> {
   const res = await fetch(`${dataRoot()}wahapedia-index.json`);
@@ -97,18 +129,17 @@ async function loadFactionShards(): Promise<CatalogSheet[]> {
       return body.sheets || [];
     }),
   );
-  const sheets = parts.flat();
   return applyCatalog({
     source: index.source,
     generated: index.generated,
-    sheetCount: index.sheetCount || sheets.length,
-    sheets,
+    sheetCount: index.sheetCount || parts.flat().length,
+    sheets: parts.flat(),
   });
 }
 
 /**
  * Lazy-load bundled Wahapedia community catalog (no live scrape).
- * Order: monolith → numbered parts → faction shards.
+ * Order: gzip+base64 → plain JSON → numbered parts → faction shards.
  */
 export function loadCatalog(): Promise<CatalogSheet[]> {
   if (cached) return Promise.resolve(cached);
@@ -117,6 +148,7 @@ export function loadCatalog(): Promise<CatalogSheet[]> {
   loadPromise = (async () => {
     const errors: string[] = [];
     for (const [label, fn] of [
+      ['gz.b64', loadGzipB64],
       ['monolith', loadMonolithic],
       ['parts', loadParts],
       ['shards', loadFactionShards],
